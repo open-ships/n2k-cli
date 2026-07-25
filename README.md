@@ -60,7 +60,7 @@ brew upgrade --cask open-ships/tap/n2k
 
 ### Go
 
-With Go 1.25.8 or newer:
+With Go 1.26.5 or newer:
 
 ```bash
 go install github.com/open-ships/n2k-cli/cmd/n2k@latest
