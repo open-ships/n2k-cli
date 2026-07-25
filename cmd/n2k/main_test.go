@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"testing"
@@ -311,9 +312,10 @@ func TestUpdaterDetectsGoInstallAndRunsPinnedRelease(t *testing.T) {
 	}
 	var commandName string
 	var commandArgs []string
+	executablePath := filepath.Join(string(filepath.Separator), "Users", "developer", "go", "bin", executableName(runtime.GOOS))
 	service := &releaseUpdaterService{
 		provider:       provider,
-		executablePath: func() (string, error) { return "/Users/developer/go/bin/n2k", nil },
+		executablePath: func() (string, error) { return executablePath, nil },
 		currentVersion: func() buildVersion {
 			return buildVersion{version: "1.1.0", installedWithGo: true}
 		},
@@ -327,7 +329,7 @@ func TestUpdaterDetectsGoInstallAndRunsPinnedRelease(t *testing.T) {
 		) error {
 			commandName = name
 			commandArgs = args
-			require.Equal(t, []string{"GOBIN=/Users/developer/go/bin"}, environment)
+			require.Equal(t, []string{"GOBIN=" + filepath.Dir(executablePath)}, environment)
 			return nil
 		},
 	}
