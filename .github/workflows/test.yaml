@@ -26,6 +26,17 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Test release installer
+        shell: bash
+        run: |
+          install_dir="$RUNNER_TEMP/n2k-install"
+          N2K_INSTALL_DIR="$install_dir" sh ./install.sh
+          binary=n2k
+          if [ "$RUNNER_OS" = Windows ]; then
+            binary=n2k.exe
+          fi
+          "$install_dir/$binary" version
+
   race:
     runs-on: ubuntu-latest
 
