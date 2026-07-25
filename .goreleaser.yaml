@@ -1,0 +1,68 @@
+version: 2
+project_name: n2k-cli
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: n2k
+    main: ./cmd/n2k
+    binary: n2k
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .ShortCommit }}
+      - -X main.date={{ .Date }}
+
+archives:
+  - id: n2k
+    name_template: "n2k_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs"
+      - "^test"
+      - "^chore"
+
+release:
+  # Semver tags, CalVer release names.
+  name_template: '{{ .Tag }} ({{ .Now.Format "2006.01.02" }})'
+  extra_files:
+    - glob: ./dist/homebrew/Casks/n2k.rb
+      name_template: n2k.rb
+
+homebrew_casks:
+  - name: n2k
+    ids: [n2k]
+    binaries: [n2k]
+    repository:
+      owner: open-ships
+      name: homebrew-tap
+    homepage: https://github.com/open-ships/n2k-cli
+    description: "NMEA 2000 capture, diagnostics, and schema tools"
+    directory: Casks
+    # The generated cask is attached to the GitHub release. A workflow in
+    # open-ships/homebrew-tap imports it with that repository's scoped token.
+    skip_upload: true
+    url:
+      verified: github.com/open-ships/n2k-cli/
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/n2k"]
+          end

@@ -1,0 +1,7 @@
+bin/
+dist/
+/n2k
+
+*.exe
+*.test
+*.out
