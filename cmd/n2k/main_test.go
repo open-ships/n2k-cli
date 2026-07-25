@@ -384,6 +384,34 @@ func TestUpdaterPrefersHomebrewAndVerifiesDirectBinary(t *testing.T) {
 	require.Equal(t, "/opt/homebrew/Caskroom/n2k/1.1.0/n2k", provider.binaryPath)
 }
 
+func TestForcedHomebrewUpdateReinstallsCurrentCask(t *testing.T) {
+	var commandArgs []string
+	service := &releaseUpdaterService{
+		runCommand: func(
+			_ context.Context,
+			_ string,
+			args []string,
+			_ io.Reader,
+			_, _ io.Writer,
+		) error {
+			commandArgs = args
+			return nil
+		},
+	}
+	require.NoError(t, service.Install(
+		context.Background(),
+		updateStatus{
+			Found:  true,
+			Method: updateMethodHomebrew,
+			force:  true,
+		},
+		strings.NewReader(""),
+		io.Discard,
+		io.Discard,
+	))
+	require.Equal(t, []string{"reinstall", "--cask", homebrewCask}, commandArgs)
+}
+
 func TestAutomaticUpdateCheckCache(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "n2k", "update-check.json")
 	now := time.Date(2026, time.July, 25, 12, 0, 0, 0, time.UTC)

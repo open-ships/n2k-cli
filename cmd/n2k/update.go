@@ -58,6 +58,7 @@ type updateStatus struct {
 	Found          bool
 	Available      bool
 	Method         updateMethod
+	force          bool
 	candidate      releaseCandidate
 }
 
@@ -470,10 +471,14 @@ func (service *releaseUpdaterService) Install(
 	}
 	switch status.Method {
 	case updateMethodHomebrew:
+		action := "upgrade"
+		if status.force {
+			action = "reinstall"
+		}
 		if err := service.runCommand(
 			ctx,
 			"brew",
-			[]string{"upgrade", "--cask", homebrewCask},
+			[]string{action, "--cask", homebrewCask},
 			stdin,
 			stdout,
 			stderr,
@@ -580,12 +585,13 @@ func (app *cli) runUpdate(ctx context.Context, parsed parsedCommand) error {
 	if err != nil {
 		return err
 	}
+	status.force = parsed.boolValue("force")
 	if !status.Found {
 		_, err := fmt.Fprintln(app.out, "No published n2k releases are available yet.")
 		return err
 	}
 
-	if !status.Available && !parsed.boolValue("force") {
+	if !status.Available && !status.force {
 		_, err := fmt.Fprintf(app.out, "n2k %s is up to date.\n", status.CurrentVersion)
 		return err
 	}
