@@ -397,7 +397,7 @@ func replaceExecutable(path string, binary []byte) error {
 	return nil
 }
 
-type updateCommandRunner func(context.Context, string, []string, io.Reader, io.Writer, io.Writer) error
+type updateCommandRunner func(context.Context, string, []string, []string, io.Reader, io.Writer, io.Writer) error
 
 type releaseUpdaterService struct {
 	provider       releaseProvider
@@ -479,6 +479,7 @@ func (service *releaseUpdaterService) Install(
 			ctx,
 			"brew",
 			[]string{action, "--cask", homebrewCask},
+			nil,
 			stdin,
 			stdout,
 			stderr,
@@ -487,10 +488,15 @@ func (service *releaseUpdaterService) Install(
 		}
 	case updateMethodGoInstall:
 		tag := "v" + status.LatestVersion
+		path, err := service.executablePath()
+		if err != nil {
+			return fmt.Errorf("locating n2k executable: %w", err)
+		}
 		if err := service.runCommand(
 			ctx,
 			"go",
 			[]string{"install", goInstallPackage + "@" + tag},
+			[]string{"GOBIN=" + filepath.Dir(path)},
 			stdin,
 			stdout,
 			stderr,
@@ -515,10 +521,12 @@ func runUpdateCommand(
 	ctx context.Context,
 	name string,
 	args []string,
+	environment []string,
 	stdin io.Reader,
 	stdout, stderr io.Writer,
 ) error {
 	command := exec.CommandContext(ctx, name, args...) // #nosec G204 -- executable and arguments are fixed update strategies.
+	command.Env = append(os.Environ(), environment...)
 	command.Stdin = stdin
 	command.Stdout = stdout
 	command.Stderr = stderr

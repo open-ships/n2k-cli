@@ -321,11 +321,13 @@ func TestUpdaterDetectsGoInstallAndRunsPinnedRelease(t *testing.T) {
 			_ context.Context,
 			name string,
 			args []string,
+			environment []string,
 			_ io.Reader,
 			_, _ io.Writer,
 		) error {
 			commandName = name
 			commandArgs = args
+			require.Equal(t, []string{"GOBIN=/Users/developer/go/bin"}, environment)
 			return nil
 		},
 	}
@@ -364,11 +366,13 @@ func TestUpdaterPrefersHomebrewAndVerifiesDirectBinary(t *testing.T) {
 			_ context.Context,
 			name string,
 			args []string,
+			environment []string,
 			_ io.Reader,
 			_, _ io.Writer,
 		) error {
 			require.Equal(t, "brew", name)
 			require.Equal(t, []string{"upgrade", "--cask", "open-ships/tap/n2k"}, args)
+			require.Empty(t, environment)
 			return nil
 		},
 	}
@@ -391,6 +395,7 @@ func TestForcedHomebrewUpdateReinstallsCurrentCask(t *testing.T) {
 			_ context.Context,
 			_ string,
 			args []string,
+			_ []string,
 			_ io.Reader,
 			_, _ io.Writer,
 		) error {
