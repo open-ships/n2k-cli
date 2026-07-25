@@ -3,61 +3,93 @@
 [![CI](https://github.com/open-ships/n2k-cli/actions/workflows/test.yaml/badge.svg)](https://github.com/open-ships/n2k-cli/actions/workflows/test.yaml)
 [![Release](https://img.shields.io/github/v/release/open-ships/n2k-cli)](https://github.com/open-ships/n2k-cli/releases)
 
-`n2k-cli` provides the `n2k` command-line interface for NMEA 2000 (N2K), the
-CAN-based network that connects marine instruments such as GPS, depth, wind,
-engine, and autopilot systems. It decodes, records, replays, validates, and
-inspects traffic from CAN hardware, USB-CAN adapters, WiFi gateways, and
-capture files.
+Rich terminal tools for inspecting NMEA 2000 networks.
 
-Run `n2k` without arguments for a searchable Bubble Tea command center with
-guided, autocomplete-enabled workflows. Every operation also remains available
-as a stable, non-interactive subcommand for scripts and JSON pipelines.
+`n2k` decodes, records, replays, validates, and inspects NMEA 2000 traffic from
+SocketCAN interfaces, USB-CAN adapters, network gateways, and capture files.
+Run it without arguments for a searchable Bubble Tea command center, or use its
+deterministic subcommands in scripts and JSON pipelines.
+
+- Guided interactive workflows with fuzzy search and autocomplete.
+- Typed PGN decoding with physical values, units, and exact wire data.
+- Live SocketCAN, USB-CAN, TCP, and UDP sources.
+- Replayable candump and owned-observation recording.
+- CEL filtering, schema exploration, device inventory, and validation.
+- Install-aware updates through Homebrew, Go, or verified release binaries.
 
 The CLI is powered by the
 [`open-ships/n2k`](https://github.com/open-ships/n2k) Go library.
 
 ![n2k sniff decoding NMEA 2000 PGNs as typed JSON lines with exact wire values](.github/demo.svg)
 
-## Quick Start — No Boat Required
-
-The repository bundles a real six-second capture from a sailing vessel, so the
-first run works at a desk:
-
-```bash
-git clone https://github.com/open-ships/n2k-cli && cd n2k-cli
-go run ./cmd/n2k sniff --file testdata/sample.log | jq .
-```
-
-Frames carrying vessel position, routes, or identity were removed from the
-sample for privacy.
-
 ## Install
 
-Install the latest release with Homebrew:
+Choose either installation path. Both provide the same `n2k` command, and the
+built-in updater remembers how the binary was installed.
+
+### Homebrew
+
+Homebrew is the simplest option on macOS and Linux:
 
 ```bash
 brew install --cask open-ships/tap/n2k
+n2k version
 ```
 
-Or install it directly with Go:
+Homebrew upgrades are also available directly:
+
+```bash
+brew upgrade --cask open-ships/tap/n2k
+```
+
+### Go
+
+With Go 1.25.8 or newer installed:
 
 ```bash
 go install github.com/open-ships/n2k-cli/cmd/n2k@latest
+n2k version
 ```
 
 Go writes the binary to `GOBIN`, which defaults to `$(go env GOPATH)/bin`;
-that directory must be on `PATH`.
-
-Prebuilt binaries for Linux, macOS, and Windows are available on the
-[`n2k-cli` releases page](https://github.com/open-ships/n2k-cli/releases).
-
-To build the CLI from a checkout:
+make sure that directory is on `PATH`:
 
 ```bash
+export PATH="$(go env GOPATH)/bin:$PATH"
+```
+
+If you set a custom `GOBIN`, `n2k update` preserves it and replaces that same
+installation.
+
+### Release binaries
+
+Checksum-protected archives for macOS, Linux, and Windows are published on the
+[`n2k-cli` releases page](https://github.com/open-ships/n2k-cli/releases).
+
+### Build from source
+
+For contributors or local development:
+
+```bash
+git clone https://github.com/open-ships/n2k-cli
+cd n2k-cli
 just build       # writes bin/n2k
 ./bin/n2k --help
 just install     # optional: installs n2k into Go's bin directory
 ```
+
+## Quick Start — No Boat Required
+
+The repository includes a privacy-scrubbed, six-second sailing-vessel capture,
+so you can try the decoder without CAN hardware:
+
+```bash
+git clone --depth 1 https://github.com/open-ships/n2k-cli
+cd n2k-cli
+n2k sniff --file testdata/sample.log --output text
+```
+
+Frames containing vessel position, routes, or identity were removed.
 
 ## The `n2k` CLI
 
