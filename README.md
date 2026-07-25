@@ -3,33 +3,49 @@
 [![CI](https://github.com/open-ships/n2k-cli/actions/workflows/test.yaml/badge.svg)](https://github.com/open-ships/n2k-cli/actions/workflows/test.yaml)
 [![Release](https://img.shields.io/github/v/release/open-ships/n2k-cli)](https://github.com/open-ships/n2k-cli/releases)
 
-Rich terminal tools for inspecting NMEA 2000 networks.
+**Turn raw NMEA 2000 traffic into typed, searchable, scriptable data.**
 
-`n2k` decodes, records, replays, validates, and inspects NMEA 2000 traffic from
-SocketCAN interfaces, USB-CAN adapters, network gateways, and capture files.
-Run it without arguments for a searchable Bubble Tea command center, or use its
-deterministic subcommands in scripts and JSON pipelines.
+Marine-network problems often begin as opaque CAN frames: which device sent
+this message, what does the payload mean, and can the failure be reproduced?
+`n2k` makes that traffic useful without hiding the wire. It combines a guided
+Bubble Tea command center with deterministic CLI commands for decoding,
+recording, replaying, validating, filtering, and device discovery.
 
-- Guided interactive workflows with fuzzy search and autocomplete.
-- Typed PGN decoding with physical values, units, and exact wire data.
-- Live SocketCAN, USB-CAN, TCP, and UDP sources.
-- Replayable candump and owned-observation recording.
-- CEL filtering, schema exploration, device inventory, and validation.
-- Install-aware updates through Homebrew, Go, or verified release binaries.
-
-The CLI is powered by the
+The CLI is powered by the typed
 [`open-ships/n2k`](https://github.com/open-ships/n2k) Go library.
-
-![n2k sniff decoding NMEA 2000 PGNs as typed JSON lines with exact wire values](.github/demo.svg)
 
 ## Install
 
-Choose either installation path. Both provide the same `n2k` command, and the
-built-in updater remembers how the binary was installed.
+Every installation provides the same `n2k` command.
+
+### One-line installer
+
+Copy and run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/open-ships/n2k-cli/main/install.sh | sh
+```
+
+The installer detects the platform, downloads the matching release, verifies
+its SHA-256 checksum, and installs `n2k` into `~/.local/bin` without `sudo`. If
+that directory is not already on `PATH`, it prints the exact command to add it.
+
+| Operating system | Architectures | Shell |
+|------------------|---------------|-------|
+| macOS | Intel (`amd64`), Apple Silicon (`arm64`) | `sh`, `bash`, or `zsh` |
+| Linux | `amd64`, `arm64` | `sh`, `bash`, or `zsh` |
+| Windows | `amd64`, `arm64` | Git Bash, MSYS2, or Cygwin |
+
+WSL is detected as Linux. To choose another destination or pin a release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/open-ships/n2k-cli/main/install.sh \
+  | N2K_INSTALL_DIR="$HOME/bin" N2K_VERSION=v1.0.2 sh
+```
 
 ### Homebrew
 
-Homebrew is the simplest option on macOS and Linux:
+On macOS or Linux:
 
 ```bash
 brew install --cask open-ships/tap/n2k
@@ -44,7 +60,7 @@ brew upgrade --cask open-ships/tap/n2k
 
 ### Go
 
-With Go 1.25.8 or newer installed:
+With Go 1.25.8 or newer:
 
 ```bash
 go install github.com/open-ships/n2k-cli/cmd/n2k@latest
@@ -78,6 +94,37 @@ just build       # writes bin/n2k
 just install     # optional: installs n2k into Go's bin directory
 ```
 
+## Why `n2k`?
+
+### Guided when you are exploring
+
+Run `n2k` with no arguments. Search the workflow palette, choose a source, and
+configure the operation with validated fields and autocomplete. Before
+anything touches the network, `n2k` shows the equivalent copyable CLI command.
+
+![The n2k Bubble Tea command center showing searchable decode, record, replay, validate, device, schema, and update workflows](.github/tui.svg)
+
+### Precise when you are automating
+
+The same workflows have stable flags, meaningful exit codes, dynamic shell
+completion, CEL filters, and JSON-lines output. Typed values remain paired with
+their exact wire representation, so pipelines are convenient without losing
+diagnostic fidelity.
+
+![The n2k CLI decoding a sailing-vessel capture into typed JSON lines with PGNs and exact wire values](.github/demo.svg)
+
+### One tool for the whole debugging loop
+
+| Need | What `n2k` provides |
+|------|---------------------|
+| Inspect traffic now | Decode SocketCAN, USB-CAN, TCP, UDP, candump, and gzip captures. |
+| Reproduce a problem | Record owned observations, then replay with original or disabled timing. |
+| Reduce the firehose | Filter messages with CEL and select typed, text, JSON, or unknown-PGN output. |
+| Find devices | Actively discover a writable network or passively inventory a saved capture. |
+| Measure decoder coverage | Validate a source, count undecodable PGNs, and fail CI in strict mode. |
+| Understand a PGN | Autocomplete every known PGN and inspect fields, units, ranges, and confidence. |
+| Keep tooling current | Update through Homebrew, Go, or checksum-verified release binaries. |
+
 ## Quick Start — No Boat Required
 
 The repository includes a privacy-scrubbed, six-second sailing-vessel capture,
@@ -91,7 +138,7 @@ n2k sniff --file testdata/sample.log --output text
 
 Frames containing vessel position, routes, or identity were removed.
 
-## The `n2k` CLI
+## Rich terminal workflows
 
 ### Interactive command center
 
