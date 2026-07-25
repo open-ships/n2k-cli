@@ -37,6 +37,26 @@ jobs:
           fi
           "$install_dir/$binary" version
 
+      - name: Test uninstall
+        shell: bash
+        run: |
+          uninstall_dir="$RUNNER_TEMP/n2k-uninstall"
+          mkdir -p "$uninstall_dir"
+          binary=n2k
+          if [ "$RUNNER_OS" = Windows ]; then
+            binary=n2k.exe
+          fi
+          go build -trimpath -o "$uninstall_dir/$binary" ./cmd/n2k
+          HOME="$RUNNER_TEMP/n2k-uninstall-home" "$uninstall_dir/$binary" uninstall
+          for attempt in $(seq 1 100); do
+            if [ ! -e "$uninstall_dir/$binary" ]; then
+              exit 0
+            fi
+            sleep 0.1
+          done
+          echo "n2k uninstall did not remove $uninstall_dir/$binary" >&2
+          exit 1
+
   race:
     runs-on: ubuntu-latest
 

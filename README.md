@@ -211,6 +211,7 @@ n2k pgn list | jq 'select(.complete == true)'
 | `n2k devices` | Actively discover a writable bus or passively inventory devices observed in a capture/UDP stream. |
 | `n2k pgn` | Query or list typed PGN metadata, fields, ranges, and confidence. |
 | `n2k update` | Check for a release and update through Homebrew, Go, or a verified release binary. |
+| `n2k uninstall` | Remove n2k and its update-check cache from the machine. |
 
 Run `n2k help <command>` for organized flags, defaults, allowed values, and
 examples. The purpose-built parser enforces canonical `--long-flags`, supports
@@ -251,6 +252,18 @@ and offers to install them before opening. Set `N2K_AUTO_UPDATE=1` to install
 without the confirmation prompt, or `N2K_NO_UPDATE_CHECK=1` to disable the
 automatic check. Scriptable commands never perform implicit network requests or
 updates.
+
+### Uninstall
+
+Remove n2k and its update-check cache:
+
+```bash
+n2k uninstall
+```
+
+Homebrew installations are removed through Homebrew. Go and downloaded-binary
+installations remove the currently running executable directly. On Windows,
+final cleanup finishes immediately after the command exits.
 
 ### Shell completion
 
