@@ -74,18 +74,20 @@ func (parsed parsedCommand) durationValue(name string) (time.Duration, error) {
 }
 
 type cli struct {
-	in      io.Reader
-	out     io.Writer
-	errOut  io.Writer
-	updater updaterService
+	in          io.Reader
+	out         io.Writer
+	errOut      io.Writer
+	updater     updaterService
+	uninstaller uninstallerService
 }
 
 func newCLI(in io.Reader, out, errOut io.Writer) *cli {
 	return &cli{
-		in:      in,
-		out:     out,
-		errOut:  errOut,
-		updater: newUpdaterService(),
+		in:          in,
+		out:         out,
+		errOut:      errOut,
+		updater:     newUpdaterService(),
+		uninstaller: newUninstallerService(),
 	}
 }
 
@@ -226,6 +228,8 @@ func (app *cli) runParsed(ctx context.Context, parsed parsedCommand) error {
 		return writeVersion(app.out)
 	case "update":
 		return app.runUpdate(ctx, parsed)
+	case "uninstall":
+		return app.runUninstall(ctx)
 	default:
 		return fmt.Errorf("command %q is not executable", parsed.spec.name)
 	}
@@ -539,6 +543,12 @@ func commandSpecs() []commandSpec {
 				},
 			},
 		},
+		{
+			name:    "uninstall",
+			summary: "Remove n2k from this machine",
+			usage:   "uninstall",
+			maxArgs: 0,
+		},
 	}
 }
 
@@ -600,6 +610,7 @@ func writeRootHelp(out io.Writer) error {
 	_, _ = fmt.Fprintln(writer, "  • Use n2k help <command> for flags, defaults, choices, and examples.")
 	_, _ = fmt.Fprintln(writer, "  • Enable shell completion with n2k completion <shell>.")
 	_, _ = fmt.Fprintln(writer, "  • Check and install releases with n2k update.")
+	_, _ = fmt.Fprintln(writer, "  • Remove n2k and its update cache with n2k uninstall.")
 	_, _ = fmt.Fprintln(writer)
 	_, _ = fmt.Fprintln(writer, "Examples:")
 	_, _ = fmt.Fprintln(writer, "  n2k sniff --tcp 192.168.4.1:1457")

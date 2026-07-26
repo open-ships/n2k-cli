@@ -47,6 +47,7 @@ func TestRootHelpIsDiscoverableWithoutATerminal(t *testing.T) {
 	require.Contains(t, stdout, "interactive command center")
 	require.Contains(t, stdout, "completion")
 	require.Contains(t, stdout, "devices")
+	require.Contains(t, stdout, "uninstall")
 	require.Contains(t, stdout, "validate")
 }
 
@@ -172,6 +173,7 @@ func TestDynamicCompletionUnderstandsCommandsFlagsValuesAndPGNs(t *testing.T) {
 		{name: "pgn", args: []string{"__complete", "pgn", "12725"}, want: "127250\tVessel Heading"},
 		{name: "devices action", args: []string{"__complete", "devices", "li"}, want: "list\tInventory observed devices"},
 		{name: "update method", args: []string{"__complete", "update", "--method", "h"}, want: "homebrew\tupgrade the Homebrew cask"},
+		{name: "uninstall", args: []string{"__complete", "unin"}, want: "uninstall\tRemove n2k"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
