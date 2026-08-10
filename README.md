@@ -205,7 +205,9 @@ just secure
 
 Releases follow semantic versioning. [`VERSION`](VERSION) declares the release
 baseline, and fully green release automation publishes the tag and prebuilt
-binaries.
+binaries. GoReleaser builds remain project-owned, while the SHA-pinned shared
+Open Ships release policy publishes checksums, an SBOM, toolchain evidence, and
+separate build-provenance and SBOM attestations for the platform archives.
 
 ## License
 
