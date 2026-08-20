@@ -1,6 +1,6 @@
 module github.com/open-ships/n2k-cli
 
-go 1.26.5
+go 1.26.6
 
 require (
 	charm.land/bubbles/v2 v2.1.1
@@ -9,7 +9,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.5
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/charmbracelet/x/term v0.2.2
-	github.com/open-ships/n2k v1.0.0
+	github.com/open-ships/n2k v1.2.0
 	github.com/stretchr/testify v1.9.0
 )
 

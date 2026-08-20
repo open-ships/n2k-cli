@@ -194,7 +194,7 @@ decode errors.
 
 ## Development
 
-Go 1.26.5 or newer and `just` are required.
+Go 1.26.6 or newer and `just` are required.
 
 ```bash
 just setup # first checkout only
