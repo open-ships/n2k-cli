@@ -106,14 +106,14 @@ jobs:
 
       - name: Run govulncheck
         env:
-          GOTOOLCHAIN: go1.26.5
+          GOTOOLCHAIN: go1.26.6
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.5.0
           govulncheck ./...
 
       - name: Run gosec
         env:
-          GOTOOLCHAIN: go1.26.5
+          GOTOOLCHAIN: go1.26.6
         run: |
           go install github.com/securego/gosec/v2/cmd/gosec@v2.27.1
           gosec -exclude-dir=.claude -exclude=G115 ./...
