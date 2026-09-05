@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
@@ -22,7 +23,14 @@ type paletteItem struct {
 	description string
 }
 
-func (item paletteItem) Title() string       { return item.title }
+func (item paletteItem) Title() string {
+	for index, choice := range commandPaletteItems() {
+		if choice.command == item.command {
+			return fmt.Sprintf("%d  %s", index+1, item.title)
+		}
+	}
+	return item.title
+}
 func (item paletteItem) Description() string { return item.description }
 func (item paletteItem) FilterValue() string {
 	return item.command + " " + item.title + " " + item.description
@@ -34,6 +42,7 @@ type paletteModel struct {
 	canceled bool
 	width    int
 	height   int
+	isDark   bool
 }
 
 func newPaletteModel() paletteModel {
@@ -50,7 +59,7 @@ func newPaletteModel() paletteModel {
 	model.SetFilteringEnabled(true)
 	model.SetStatusBarItemName("workflow", "workflows")
 	model.InfiniteScrolling = true
-	return paletteModel{list: model, width: 84, height: 24}
+	return paletteModel{list: model, width: 84, height: 24, isDark: true}
 }
 
 func commandPaletteItems() []paletteItem {
@@ -63,7 +72,7 @@ func commandPaletteItems() []paletteItem {
 		{
 			command:     "record",
 			title:       "Record raw observations",
-			description: "Capture replayable candump or context-rich observation JSON lines",
+			description: "Save a replayable capture or detailed JSON export",
 		},
 		{
 			command:     "replay",
@@ -83,7 +92,7 @@ func commandPaletteItems() []paletteItem {
 		{
 			command:     "pgn",
 			title:       "Explore the PGN schema",
-			description: "Autocomplete known PGNs and inspect fields, ranges, units, and confidence",
+			description: "Search PGNs by name or number; inspect fields, ranges, units, and confidence",
 		},
 		{
 			command:     "update",
@@ -100,20 +109,24 @@ func (model paletteModel) Init() tea.Cmd {
 func (model paletteModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := message.(type) {
 	case tea.WindowSizeMsg:
-		model.width = max(48, message.Width)
-		model.height = max(16, message.Height)
-		model.list.SetSize(model.width-6, model.height-8)
+		model.width = max(1, message.Width)
+		model.height = max(1, message.Height)
+		model.resizeList()
 	case tea.BackgroundColorMsg:
-		model.list.Styles = list.DefaultStyles(message.IsDark())
-		delegate := list.NewDefaultDelegate()
-		delegate.Styles = list.NewDefaultItemStyles(message.IsDark())
-		delegate.SetSpacing(1)
-		model.list.SetDelegate(delegate)
+		model.isDark = message.IsDark()
+		model.list.Styles = list.DefaultStyles(model.isDark)
+		model.resizeList()
 	case tea.KeyPressMsg:
 		key := message.String()
 		if model.list.FilterState() != list.Filtering {
 			switch key {
-			case "q", "esc", "ctrl+c":
+			case "esc":
+				if model.list.FilterState() != list.Unfiltered {
+					break
+				}
+				model.canceled = true
+				return model, tea.Quit
+			case "q", "ctrl+c":
 				model.canceled = true
 				return model, tea.Quit
 			case "enter":
@@ -122,6 +135,9 @@ func (model paletteModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 					return model, tea.Quit
 				}
 			case "1", "2", "3", "4", "5", "6", "7":
+				if model.list.FilterState() != list.Unfiltered {
+					break
+				}
 				index := int(key[0] - '1')
 				items := commandPaletteItems()
 				if index >= 0 && index < len(items) {
@@ -147,9 +163,15 @@ func (model paletteModel) View() tea.View {
 	subtitle := lipgloss.NewStyle().
 		Foreground(muted).
 		Render("NMEA 2000 developer console")
+	hintText := "1–7 configure  •  / filter  •  enter open  •  ? help  •  q quit"
+	if model.list.FilterState() == list.FilterApplied {
+		hintText = "esc clear filter  •  enter open  •  q quit"
+	} else if model.list.FilterState() == list.Filtering {
+		hintText = "enter apply filter  •  esc cancel filter"
+	}
 	hint := lipgloss.NewStyle().
 		Foreground(muted).
-		Render("1–7 jump  •  / filter  •  enter configure  •  ? help  •  q quit")
+		Render(hintText)
 	body := lipgloss.JoinVertical(
 		lipgloss.Left,
 		title+"  "+subtitle,
@@ -158,10 +180,38 @@ func (model paletteModel) View() tea.View {
 		"",
 		hint,
 	)
-	view := tea.NewView(lipgloss.NewStyle().Padding(1, 3).Render(body))
+	content := lipgloss.NewStyle().Padding(1, 3).Render(body)
+	if model.compact() {
+		hint := "↑/↓ choose · enter open\n/ search · esc back · q quit"
+		if model.list.FilterState() == list.Filtering {
+			hint = "enter applies filter\nesc cancels filter"
+		}
+		content = lipgloss.NewStyle().Padding(0, 1).Render(title + "\n" + model.list.View() + "\n" + hint)
+	}
+	if model.width < 30 || model.height < 10 {
+		content = lipgloss.NewStyle().MaxWidth(model.width).MaxHeight(model.height).Render("Resize terminal to 30×10.\nq to quit")
+	}
+	view := tea.NewView(content)
 	view.AltScreen = true
 	view.WindowTitle = "n2k command center"
 	return view
+}
+
+func (model paletteModel) compact() bool { return model.width < 70 || model.height < 24 }
+
+func (model *paletteModel) resizeList() {
+	delegate := list.NewDefaultDelegate()
+	delegate.Styles = list.NewDefaultItemStyles(model.isDark)
+	delegate.ShowDescription = !model.compact()
+	delegate.SetSpacing(0)
+	model.list.SetDelegate(delegate)
+	model.list.SetShowStatusBar(!model.compact())
+	model.list.SetShowHelp(!model.compact())
+	if model.compact() {
+		model.list.SetSize(max(1, model.width-2), max(1, model.height-5))
+	} else {
+		model.list.SetSize(max(1, model.width-6), max(1, model.height-8))
+	}
 }
 
 func (app *cli) runInteractive(ctx context.Context, accessible bool) error {
@@ -170,16 +220,47 @@ func (app *cli) runInteractive(ctx context.Context, accessible bool) error {
 	if err != nil || updated {
 		return err
 	}
-	command, selected, err := app.chooseCommand(ctx, accessible)
-	if err != nil || !selected {
-		return err
+	var config *wizardConfig
+	action := "another"
+	for ctx.Err() == nil {
+		if action == "another" {
+			command, selected, err := app.chooseCommand(ctx, accessible)
+			if err != nil || !selected {
+				return err
+			}
+			config = defaultWizardConfig(command)
+			action = "edit"
+		}
+		if action == "edit" {
+			_, confirmed, err := app.configureWizard(ctx, config, accessible)
+			if err != nil {
+				return err
+			}
+			if !confirmed {
+				action = "another"
+				continue
+			}
+		}
+		confirmed, runErr := app.confirmOverwrite(ctx, config, accessible)
+		if runErr == nil && !confirmed {
+			action = "edit"
+			continue
+		}
+		if runErr == nil {
+			runErr = app.executeInteractive(ctx, config)
+		}
+		if ctx.Err() != nil {
+			return nil
+		}
+		if runErr != nil {
+			_, _ = fmt.Fprintf(app.errOut, "\nn2k: %v\nYour settings are preserved.\n", runErr)
+		}
+		action, err = app.nextWorkflowAction(ctx, runErr != nil, accessible)
+		if err != nil || action == "quit" {
+			return err
+		}
 	}
-	args, confirmed, err := app.configureCommand(ctx, command, accessible)
-	if err != nil || !confirmed {
-		return err
-	}
-	_, _ = fmt.Fprintf(app.errOut, "\n%s\n\n", renderCommandPreview(args))
-	return app.ExecuteContext(ctx, args)
+	return nil
 }
 
 func (app *cli) chooseCommand(ctx context.Context, accessible bool) (string, bool, error) {
@@ -234,6 +315,7 @@ type wizardConfig struct {
 	unknown       bool
 	output        string
 	outputPath    string
+	overwrite     bool
 	recordFormat  string
 	strict        bool
 	wait          string
@@ -250,8 +332,9 @@ func defaultWizardConfig(command string) *wizardConfig {
 		command:       command,
 		source:        "file",
 		format:        "raw",
-		output:        "json",
-		outputPath:    "-",
+		output:        "text",
+		outputPath:    freshCapturePath(time.Now()),
+		timing:        command == "replay",
 		recordFormat:  "candump",
 		wait:          "3s",
 		claimTimeout:  "2s",
@@ -263,28 +346,46 @@ func defaultWizardConfig(command string) *wizardConfig {
 	}
 }
 
-func (app *cli) configureCommand(ctx context.Context, command string, accessible bool) ([]string, bool, error) {
-	config := defaultWizardConfig(command)
+func (app *cli) configureWizard(ctx context.Context, config *wizardConfig, accessible bool) ([]string, bool, error) {
+	command := config.command
+	config.run = true
+	config.overwrite = false
 	var groups []*huh.Group
 	switch command {
 	case "sniff", "record", "validate", "devices":
 		groups = append(groups, sourceWizardGroups(config)...)
 		groups = append(groups, commandOptionGroups(config)...)
 	case "replay":
-		config.timing = true
 		groups = append(groups, replayWizardGroups(config)...)
 	case "pgn":
-		groups = append(groups, pgnWizardGroups(config)...)
+		groups = append(groups, pgnWizardGroups(config, accessible)...)
 	case "update":
 	default:
 		return nil, false, fmt.Errorf("no interactive workflow for %q", command)
 	}
 
-	groups = append(groups, confirmationGroup(config))
+	if command == "devices" || command == "validate" || command == "pgn" {
+		groups = append(groups, resultOutputGroup(config))
+	}
+	if !accessible {
+		groups = append(groups, confirmationGroup(config))
+	}
 	form := huh.NewForm(groups...).WithShowHelp(true).WithShowErrors(true)
 	ok, err := app.runForm(ctx, form, accessible)
 	if err != nil || !ok || !config.run {
 		return nil, false, err
+	}
+	if accessible {
+		// Huh's accessible renderer does not evaluate DescriptionFunc. Build
+		// the preview after the answers have been collected so it is reviewable.
+		confirmation := huh.NewForm(huh.NewGroup(
+			huh.NewNote().Title("Ready to run").Description(renderCommandPreview(config.args())),
+			huh.NewConfirm().Title("Run this command now?").Affirmative("Run").Negative("Cancel").Value(&config.run),
+		))
+		ok, err = app.runForm(ctx, confirmation, true)
+		if err != nil || !ok || !config.run {
+			return nil, false, err
+		}
 	}
 	return config.args(), true, nil
 }
@@ -368,7 +469,7 @@ func sourceWizardGroups(config *wizardConfig) []*huh.Group {
 				Title("Capture path").
 				Description("Plain or gzip candump -L/-l format; Tab accepts a suggestion").
 				Placeholder("capture.log").
-				Suggestions([]string{"testdata/sample.log", "capture.log", "capture.log.gz"}).
+				SuggestionsFunc(func() []string { return pathSuggestions(config.file) }, &config.file).
 				Value(&config.file).
 				Validate(existingPath),
 		).WithHideFunc(func() bool { return config.source != "file" }),
@@ -376,7 +477,7 @@ func sourceWizardGroups(config *wizardConfig) []*huh.Group {
 			huh.NewInput().
 				Title("SocketCAN interface").
 				Placeholder("can0").
-				Suggestions([]string{"can0", "vcan0"}).
+				SuggestionsFunc(func() []string { return completionValues(socketCANInterfaces()) }, &config.iface).
 				Value(&config.iface).
 				Validate(required("interface")),
 		).WithHideFunc(func() bool { return config.source != "interface" }),
@@ -384,7 +485,7 @@ func sourceWizardGroups(config *wizardConfig) []*huh.Group {
 			huh.NewInput().
 				Title("USB-CAN serial port").
 				Placeholder("/dev/ttyUSB0").
-				Suggestions([]string{"/dev/ttyUSB0", "/dev/ttyACM0"}).
+				SuggestionsFunc(func() []string { return completionValues(completeUSBDevices(config.usb)) }, &config.usb).
 				Value(&config.usb).
 				Validate(required("serial port")),
 		).WithHideFunc(func() bool { return config.source != "usb" }),
@@ -394,7 +495,7 @@ func sourceWizardGroups(config *wizardConfig) []*huh.Group {
 				Placeholder("192.168.4.1:1457").
 				Suggestions([]string{"192.168.4.1:1457", "localhost:1457"}).
 				Value(&config.tcp).
-				Validate(required("TCP address")),
+				Validate(addressValidator("TCP")),
 		).WithHideFunc(func() bool { return config.source != "tcp" }),
 	}
 	if config.allowReadOnly {
@@ -405,7 +506,7 @@ func sourceWizardGroups(config *wizardConfig) []*huh.Group {
 					Placeholder(":1457").
 					Suggestions([]string{":1457", "127.0.0.1:1457"}).
 					Value(&config.udp).
-					Validate(required("UDP address")),
+					Validate(addressValidator("UDP")),
 			).WithHideFunc(func() bool { return config.source != "udp" }),
 		)
 	}
@@ -442,15 +543,15 @@ func commandOptionGroups(config *wizardConfig) []*huh.Group {
 			huh.NewGroup(
 				huh.NewInput().
 					Title("Output path").
-					Description("Use - to stream to stdout").
+					Description("A new file is suggested. Existing files require a separate replacement choice; - streams to stdout.").
 					Value(&config.outputPath).
-					Suggestions([]string{"-", "capture.log", "observations.jsonl"}).
+					SuggestionsFunc(func() []string { return pathSuggestions(config.outputPath) }, &config.outputPath).
 					Validate(required("output path")),
 				huh.NewSelect[string]().
 					Title("Capture format").
 					Options(
 						huh.NewOption("Replayable candump text", "candump"),
-						huh.NewOption("Owned observation JSON lines", "jsonl"),
+						huh.NewOption("Detailed JSON export (cannot replay)", "jsonl"),
 					).
 					Value(&config.recordFormat),
 			),
@@ -494,16 +595,17 @@ func messageOptionGroups(config *wizardConfig) []*huh.Group {
 			huh.NewSelect[string]().
 				Title("Message output").
 				Options(
-					huh.NewOption("Typed JSON lines with exact wire values", "json"),
-					huh.NewOption("Concrete PGN types with physical values and units", "text"),
+					huh.NewOption("Readable physical values and units", "text"),
+					huh.NewOption("JSON lines with exact wire values", "json"),
 				).
 				Value(&config.output),
 			huh.NewInput().
 				Title("CEL filter").
-				Description("Optional; metadata-only filters avoid decode work").
+				Description("Optional: pgn == 127250 keeps heading messages; Tab completes").
 				Placeholder("pgn == 127250").
 				Suggestions([]string{"pgn == 127250", "source == 0", "priority <= 3"}).
-				Value(&config.filter),
+				Value(&config.filter).
+				Validate(validateFilter),
 			huh.NewConfirm().
 				Title("Include unknown PGNs?").
 				Value(&config.unknown),
@@ -518,7 +620,7 @@ func replayWizardGroups(config *wizardConfig) []*huh.Group {
 				huh.NewInput().
 					Title("Capture path").
 					Placeholder("capture.log").
-					Suggestions([]string{"testdata/sample.log", "capture.log", "capture.log.gz"}).
+					SuggestionsFunc(func() []string { return pathSuggestions(config.file) }, &config.file).
 					Value(&config.file).
 					Validate(existingPath),
 				huh.NewConfirm().
@@ -531,30 +633,44 @@ func replayWizardGroups(config *wizardConfig) []*huh.Group {
 	)
 }
 
-func pgnWizardGroups(config *wizardConfig) []*huh.Group {
-	suggestions := make([]string, 0, len(pgn.PgnInfoLookup))
+func pgnWizardGroups(config *wizardConfig, accessible bool) []*huh.Group {
+	options := make([]huh.Option[string], 0, len(pgn.PgnInfoLookup))
 	for _, number := range sortedPGNNumbers() {
-		suggestions = append(suggestions, strconv.FormatUint(uint64(number), 10))
+		infos := pgn.PgnInfoLookup[number]
+		label := fmt.Sprintf("%d · %s", number, infos[0].Description)
+		if len(infos) > 1 {
+			label += fmt.Sprintf(" (+%d variants)", len(infos)-1)
+		}
+		options = append(options, huh.NewOption(label, strconv.FormatUint(uint64(number), 10)))
+	}
+	var field huh.Field = huh.NewSelect[string]().Title("Find a PGN").Description("Press / to search by name or number, for example heading or 127250").Options(options...).Height(8).Value(&config.pgnNumber)
+	if accessible {
+		field = huh.NewInput().Title("PGN number or name").Description("A number shows fields; a name such as heading searches known PGNs.").Value(&config.pgnNumber).Validate(func(value string) error {
+			_, err := findPGNs(value)
+			return err
+		})
 	}
 	return []*huh.Group{
-		huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("PGN schema action").
-				Options(
-					huh.NewOption("Describe one PGN", "describe"),
-					huh.NewOption("List every typed PGN variant", "list"),
-				).
-				Value(&config.pgnAction),
-		),
-		huh.NewGroup(
-			huh.NewInput().
-				Title("PGN number").
-				Description("Type to narrow known PGNs; Tab accepts the suggestion").
-				Suggestions(suggestions).
-				Value(&config.pgnNumber).
-				Validate(validatePGN),
-		).WithHideFunc(func() bool { return config.pgnAction == "list" }),
+		huh.NewGroup(huh.NewSelect[string]().Title("PGN schema action").Options(
+			huh.NewOption("Describe one PGN", "describe"), huh.NewOption("List known PGNs", "list"),
+		).Value(&config.pgnAction)),
+		huh.NewGroup(field).WithHideFunc(func() bool { return config.pgnAction == "list" }),
 	}
+}
+
+func pathSuggestions(prefix string) []string { return completionValues(completeFiles(prefix)) }
+func completionValues(items []completionItem) []string {
+	values := make([]string, 0, len(items))
+	for _, item := range items {
+		values = append(values, item.value)
+	}
+	return values
+}
+
+func resultOutputGroup(config *wizardConfig) *huh.Group {
+	return huh.NewGroup(huh.NewSelect[string]().Title("Result output").Options(
+		huh.NewOption("Readable summary and tables", "text"), huh.NewOption("JSON for scripts", "json"),
+	).Value(&config.output))
 }
 
 func confirmationGroup(config *wizardConfig) *huh.Group {
@@ -582,9 +698,9 @@ func (config *wizardConfig) args() []string {
 		args = append(args, config.file, "--timing="+strconv.FormatBool(config.timing))
 	case "pgn":
 		if config.pgnAction == "list" {
-			return append(args, "list")
+			return append(args, "list", "--output", config.output)
 		}
-		return append(args, config.pgnNumber)
+		return append(args, config.pgnNumber, "--output", config.output)
 	}
 
 	switch config.command {
@@ -598,11 +714,16 @@ func (config *wizardConfig) args() []string {
 		}
 	case "record":
 		args = append(args, "--out", config.outputPath, "--output-format", config.recordFormat)
+		if config.overwrite {
+			args = append(args, "--overwrite")
+		}
 	case "validate":
+		args = append(args, "--output", config.output)
 		if config.strict {
 			args = append(args, "--strict")
 		}
 	case "devices":
+		args = append(args, "--output", config.output)
 		if config.source != "file" {
 			args = append(args, "--wait", config.wait)
 		}
@@ -634,7 +755,12 @@ func (config *wizardConfig) sourceArgs() []string {
 }
 
 func (app *cli) runForm(ctx context.Context, form *huh.Form, accessible bool) (bool, error) {
-	err := form.
+	if accessible {
+		_, _ = fmt.Fprintln(app.errOut, "Follow the prompts. Ctrl+C exits.")
+	} else {
+		_, _ = fmt.Fprintln(app.errOut, "Esc / Ctrl+C cancels · Shift+Tab goes back")
+	}
+	err := form.WithKeyMap(wizardKeyMap()).WithProgramOptions(tea.WithFilter(formKeyFilter(form))).
 		WithInput(app.in).
 		WithOutput(app.errOut).
 		WithAccessible(accessible).
@@ -652,7 +778,7 @@ func existingPath(value string) error {
 	if err := required("capture path")(value); err != nil {
 		return err
 	}
-	info, err := os.Stat(value)
+	info, err := os.Stat(expandPath(value))
 	if err != nil {
 		return fmt.Errorf("cannot read %q: %w", value, err)
 	}
@@ -684,20 +810,6 @@ func durationValidator(label string) func(string) error {
 	}
 }
 
-func validatePGN(value string) error {
-	if value == "list" {
-		return nil
-	}
-	number, err := strconv.ParseUint(value, 0, 32)
-	if err != nil {
-		return fmt.Errorf("enter a decimal or hexadecimal PGN")
-	}
-	if len(pgn.PgnInfoLookup[uint32(number)]) == 0 {
-		return fmt.Errorf("PGN %d is not in the typed metadata", number)
-	}
-	return nil
-}
-
 func renderCommandPreview(args []string) string {
 	parts := make([]string, 0, len(args)+1)
 	parts = append(parts, "n2k")
@@ -720,5 +832,29 @@ func envTruthy(name string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func wizardKeyMap() *huh.KeyMap {
+	keymap := huh.NewDefaultKeyMap()
+	keymap.Input.AcceptSuggestion.SetKeys("tab", "ctrl+e")
+	keymap.Input.AcceptSuggestion.SetHelp("tab", "complete")
+	keymap.Input.Next.SetKeys("enter")
+	return keymap
+}
+
+// Let a select field finish its search with Escape as its own help advertises.
+// Outside search, Escape cancels the form through Huh's standard quit key.
+func formKeyFilter(form *huh.Form) func(tea.Model, tea.Msg) tea.Msg {
+	return func(_ tea.Model, message tea.Msg) tea.Msg {
+		if pressed, ok := message.(tea.KeyPressMsg); ok && pressed.Code == tea.KeyEscape {
+			for _, binding := range form.GetFocusedField().KeyBinds() {
+				if key.Matches(pressed, binding) {
+					return message
+				}
+			}
+			return tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModCtrl})
+		}
+		return message
 	}
 }

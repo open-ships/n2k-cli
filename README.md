@@ -4,7 +4,7 @@
 [![Release](https://img.shields.io/github/v/release/open-ships/n2k-cli)](https://github.com/open-ships/n2k-cli/releases)
 
 
-Decode, record, replay, validate, filter, and discover devices - all from a nicely packaged TUI.
+Decode, record, replay, validate, filter, and discover devices - with guided terminal workflows and scriptable commands.
 
 Powered by the [`open-ships/n2k`](https://github.com/open-ships/n2k) Go library.
 
@@ -63,15 +63,33 @@ n2k
 
 The command center provides:
 
-- Fuzzy command search with `/`, keyboard navigation, and `1`–`7` shortcuts.
+- Fuzzy command search with `/`, keyboard navigation, and numbered `1`–`7` shortcuts. Escape clears a palette filter before leaving.
 - Guided source selection for SocketCAN, USB-CAN, TCP/UDP gateways, and files.
 - Inline validation for paths, durations, addresses, formats, and PGNs.
-- Tab-completable capture paths, common interfaces, gateway addresses, CEL
-  filters, durations, and every known PGN number.
-- A reviewable, copyable command preview before anything runs.
-- Terminal-aware colors, contextual key help, cancellation, and a full-screen
-  alternate buffer that leaves the shell clean.
+- Tab completion for local capture paths, interfaces, gateway addresses, CEL
+  filters, and durations; PGN search by name or number. Enter advances input fields.
+- A reviewable, copyable command preview before anything runs, plus explicit
+  confirmation before replacing an existing recording.
+- Terminal-aware colors, compact layouts for small terminals, contextual key help,
+  and a full-screen command palette that leaves the shell clean.
+- Readable results, progress counts, saved-file confirmation, and retained settings
+  for editing or retrying. Ctrl+C stops the running operation and saves captured data;
+  the next-action menu lets you continue or quit.
 
+
+Use `n2k tui --accessible` (or `N2K_ACCESSIBLE=1`) for screen-reader-friendly
+prompts. In forms, Escape or Ctrl+C cancels configuration and returns to workflow
+selection; Escape finishes or clears an active search first. Shift+Tab goes to
+the previous field. In accessible mode, follow the numbered prompts and use
+Ctrl+C to exit.
+
+Try an offline inspection from a source checkout, without connecting hardware:
+
+```bash
+n2k sniff --file testdata/sample.log --output text --filter 'pgn == 128267'
+n2k devices --file testdata/sample.log --output text
+n2k pgn heading --output text
+```
 
 ### Scriptable commands
 
@@ -96,6 +114,8 @@ n2k sniff -i can0 -f 'pgn == 127250' --unknown | jq .
 
 # Record, replay, validate, discover, and inspect schema support
 n2k record -i can0 --out capture.log
+# Existing files are protected; replace only when intended:
+n2k record -i can0 --out capture.log --overwrite
 n2k record --tcp 192.168.4.1:1457 --out observations.jsonl --output-format jsonl
 n2k replay --timing=false capture.log
 n2k validate --file capture.log --strict
@@ -103,6 +123,8 @@ n2k devices --tcp 192.168.4.1:1457 --wait 5s
 n2k devices --file capture.log.gz
 n2k devices list --file capture.log.gz  # "list" is an optional, readable alias
 n2k pgn 127250
+n2k pgn 127250 --output text
+n2k pgn heading --output text
 n2k pgn list | jq 'select(.complete == true)'
 ```
 
@@ -184,9 +206,21 @@ Completion is dynamic rather than a static command list. It understands:
 `sniff` and `replay` default to JSON lines containing typed structs and their
 exact wire values. The demo projects the metadata envelope down to its PGN for
 readability. Set `--output text` for the concrete `pgn.<Type>`, source address,
-scaled physical values, SI units, and lookup type names.
+scaled physical values, SI units, and labels for common marine enumerations
+(with numeric fallbacks for other lookups).
 
-`record` writes replayable candump by default. JSON-lines mode retains each
+`record` writes replayable candump by default. Existing destinations require
+`--overwrite`; an input capture cannot also be the output, including through
+symlinks or hard links. The wizard suggests a fresh filename and asks before
+replacement. JSONL is a detailed export and cannot currently be replayed by n2k.
+Empty files and unsupported capture formats produce actionable errors.
+
+`devices`, `validate`, and `pgn` accept `--output text` for readable tables and
+summaries. The guided workflows default to readable output; scriptable commands
+keep JSON as their default. Validation JSON includes `undecodableByPgn`, and its
+text summary identifies the failing PGNs with an inspection command.
+
+In JSON-lines mode, `record` retains each
 owned source observation, including adapter and network identity, source and
 receipt timestamps, gateway-relative time, direction, and frame bytes. The Go
 library's observation stream additionally exposes assembled messages and

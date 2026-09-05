@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -69,6 +70,9 @@ func (parsed parsedCommand) durationValue(name string) (time.Duration, error) {
 	duration, err := time.ParseDuration(value)
 	if err != nil {
 		return 0, fmt.Errorf("invalid --%s duration %q: %w", name, value, err)
+	}
+	if duration <= 0 {
+		return 0, fmt.Errorf("--%s must be greater than zero", name)
 	}
 	return duration, nil
 }
@@ -137,11 +141,22 @@ func (app *cli) ExecuteContext(ctx context.Context, args []string) error {
 }
 
 func (app *cli) runParsed(ctx context.Context, parsed parsedCommand) error {
+	if ctx.Err() != nil {
+		return nil
+	}
+	if parsed.spec.name != "tui" {
+		var stop context.CancelFunc
+		ctx, stop = signal.NotifyContext(ctx, os.Interrupt)
+		defer stop()
+	}
+	if err := validateFilter(parsed.stringValue("filter")); err != nil {
+		return err
+	}
 	switch parsed.spec.name {
 	case "tui":
 		return app.runInteractive(ctx, parsed.boolValue("accessible"))
 	case "sniff":
-		source, _, cleanup, err := preparedSource(parsed, true)
+		source, _, cleanup, err := preparedSource(ctx, parsed, true)
 		if err != nil {
 			return err
 		}
@@ -155,7 +170,10 @@ func (app *cli) runParsed(ctx context.Context, parsed parsedCommand) error {
 			parsed.stringValue("output"),
 		)
 	case "record":
-		source, _, cleanup, err := preparedSource(parsed, true)
+		if err := checkRecordPaths(parsed.stringValue("file"), parsed.stringValue("out")); err != nil {
+			return err
+		}
+		source, _, cleanup, err := preparedSource(ctx, parsed, true)
 		if err != nil {
 			return err
 		}
@@ -164,8 +182,10 @@ func (app *cli) runParsed(ctx context.Context, parsed parsedCommand) error {
 			ctx,
 			app.out,
 			source,
+			parsed.stringValue("file"),
 			parsed.stringValue("out"),
 			parsed.stringValue("output-format"),
+			parsed.boolValue("overwrite"),
 		)
 	case "replay":
 		file := parsed.stringValue("file")
@@ -178,7 +198,7 @@ func (app *cli) runParsed(ctx context.Context, parsed parsedCommand) error {
 		if file == "" {
 			return errors.New("a candump capture path is required")
 		}
-		file, cleanup, err := prepareCapture(file)
+		file, cleanup, err := prepareCapture(ctx, file)
 		if err != nil {
 			return err
 		}
@@ -193,17 +213,17 @@ func (app *cli) runParsed(ctx context.Context, parsed parsedCommand) error {
 			parsed.stringValue("output"),
 		)
 	case "validate":
-		source, _, cleanup, err := preparedSource(parsed, true)
+		source, _, cleanup, err := preparedSource(ctx, parsed, true)
 		if err != nil {
 			return err
 		}
 		defer cleanup()
-		return runValidate(ctx, app.out, source, parsed.boolValue("strict"))
+		return runValidate(ctx, app.out, source, parsed.boolValue("strict"), parsed.stringValue("output"))
 	case "devices":
 		if len(parsed.positionals) == 1 && parsed.positionals[0] != "list" {
 			return fmt.Errorf("unknown devices action %q: use \"list\"", parsed.positionals[0])
 		}
-		source, values, cleanup, err := preparedSource(parsed, true)
+		source, values, cleanup, err := preparedSource(ctx, parsed, true)
 		if err != nil {
 			return err
 		}
@@ -217,11 +237,11 @@ func (app *cli) runParsed(ctx context.Context, parsed parsedCommand) error {
 			return err
 		}
 		if values.file != "" || values.udp != "" {
-			return runPassiveDevices(ctx, app.out, source, wait, values.udp != "")
+			return runPassiveDevices(ctx, app.out, source, wait, values.udp != "", parsed.stringValue("output"))
 		}
-		return runActiveDevices(ctx, app.out, source, values.tcp != "", wait, claimTimeout)
+		return runActiveDevices(ctx, app.out, source, values.tcp != "", wait, claimTimeout, parsed.stringValue("output"))
 	case "pgn":
-		return runPGN(app.out, parsed.positionals[0])
+		return runPGN(app.out, parsed.positionals[0], parsed.stringValue("output"))
 	case "completion":
 		return writeShellCompletion(app.out, parsed.positionals[0])
 	case "version":
@@ -235,12 +255,12 @@ func (app *cli) runParsed(ctx context.Context, parsed parsedCommand) error {
 	}
 }
 
-func preparedSource(parsed parsedCommand, allowReadOnly bool) (n2k.Option, sourceFlagValues, func(), error) {
+func preparedSource(ctx context.Context, parsed parsedCommand, allowReadOnly bool) (n2k.Option, sourceFlagValues, func(), error) {
 	values := sourceValues(parsed, allowReadOnly)
 	if _, err := values.option(); err != nil {
 		return nil, values, func() {}, err
 	}
-	cleanup, err := values.prepareCapture()
+	cleanup, err := values.prepareCapture(ctx)
 	if err != nil {
 		return nil, values, func() {}, err
 	}
@@ -348,7 +368,7 @@ func parseCommand(spec commandSpec, args []string) (parsedCommand, error) {
 
 		value := inline
 		if !hasValue {
-			if index+1 >= len(args) {
+			if index+1 >= len(args) || (strings.HasPrefix(args[index+1], "-") && args[index+1] != "-") {
 				return parsedCommand{}, fmt.Errorf("--%s requires <%s>", flag.name, flag.valueName)
 			}
 			index++
@@ -422,7 +442,7 @@ func commandSpecs() []commandSpec {
 		},
 		{
 			name:    "record",
-			summary: "Capture owned raw observations",
+			summary: "Record a replayable capture or detailed JSON export",
 			usage:   "record [source flags] [options]",
 			examples: []string{
 				"n2k record -i can0 --out capture.log",
@@ -430,6 +450,7 @@ func commandSpecs() []commandSpec {
 			},
 			flags: append(
 				readSourceFlags(),
+				flagSpec{name: "overwrite", kind: boolFlag, defaultVal: "false", description: "replace an existing output file (never the input capture)"},
 				flagSpec{name: "out", short: "o", valueName: "path", defaultVal: "-", description: "output path, or - for stdout", file: true},
 				flagSpec{
 					name:        "output-format",
@@ -438,7 +459,7 @@ func commandSpecs() []commandSpec {
 					description: "capture format",
 					choices: []completionItem{
 						{value: "candump", description: "replayable candump text"},
-						{value: "jsonl", description: "owned observation JSON lines"},
+						{value: "jsonl", description: "detailed JSON export (cannot replay)"},
 					},
 				},
 			),
@@ -471,6 +492,7 @@ func commandSpecs() []commandSpec {
 			},
 			flags: append(
 				readSourceFlags(),
+				summaryOutputFlag(),
 				flagSpec{name: "strict", kind: boolFlag, defaultVal: "false", description: "fail when undecodable messages are found"},
 			),
 		},
@@ -488,6 +510,7 @@ func commandSpecs() []commandSpec {
 			},
 			flags: append(
 				readSourceFlags(),
+				summaryOutputFlag(),
 				flagSpec{name: "wait", valueName: "duration", defaultVal: "3s", kind: durationFlag, description: "live/UDP observation window"},
 				flagSpec{name: "claim-timeout", valueName: "duration", defaultVal: "2s", kind: durationFlag, description: "writable-source address-claim timeout"},
 			),
@@ -495,12 +518,14 @@ func commandSpecs() []commandSpec {
 		{
 			name:    "pgn",
 			summary: "Describe or list typed PGN support",
-			usage:   "pgn <number|list>",
+			usage:   "pgn <number|name|list> [--output json|text]",
+			flags:   []flagSpec{summaryOutputFlag()},
 			minArgs: 1,
 			maxArgs: 1,
 			examples: []string{
 				"n2k pgn 127250",
 				"n2k pgn list",
+				"n2k pgn heading --output text",
 			},
 		},
 		{

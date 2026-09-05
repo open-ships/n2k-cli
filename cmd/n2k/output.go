@@ -143,6 +143,9 @@ func formatTypedField(message reflect.Value, field reflect.StructField, value re
 	}
 	if descriptor != nil {
 		if lookup := lookupName(descriptor); lookup != "" {
+			if label, ok := enumLabel(lookup, value); ok {
+				return strconv.Quote(label)
+			}
 			return lookup + "(" + fmt.Sprint(value.Interface()) + ")"
 		}
 	}
@@ -159,6 +162,35 @@ func formatTypedField(message reflect.Value, field reflect.StructField, value re
 		return fmt.Sprint(value.Interface())
 	}
 	return string(encoded)
+}
+
+// Use library labels for common marine lookups. Unknown values and lookup
+// families retain the explicit lookup name and wire value above.
+func enumLabel(lookup string, value reflect.Value) (string, bool) {
+	if !value.CanUint() || value.Uint() > 255 {
+		return "", false
+	}
+	number := uint8(value.Uint())
+	var label string
+	switch lookup {
+	case "DIRECTION_REFERENCE":
+		label = pgn.DirectionReferenceConst(number).String()
+	case "WIND_REFERENCE":
+		label = pgn.WindReferenceConst(number).String()
+	case "WATER_REFERENCE":
+		label = pgn.WaterReferenceConst(number).String()
+	case "DIRECTION_RUDDER":
+		label = pgn.DirectionRudderConst(number).String()
+	case "YES_NO":
+		label = pgn.YesNoConst(number).String()
+	case "OFF_ON":
+		label = pgn.OffOnConst(number).String()
+	case "OK_WARNING":
+		label = pgn.OkWarningConst(number).String()
+	default:
+		return "", false
+	}
+	return label, !strings.Contains(label, "Const(")
 }
 
 func formatPhysicalValue(value float64, descriptor *pgn.FieldDescriptor) string {
