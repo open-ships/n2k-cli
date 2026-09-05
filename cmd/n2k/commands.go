@@ -35,11 +35,11 @@ func (values sourceFlagValues) option() (n2k.Option, error) {
 	return sourceOption(values.iface, values.usb, values.file, values.tcp, values.udp, values.format, values.timing)
 }
 
-func (values *sourceFlagValues) prepareCapture() (func(), error) {
+func (values *sourceFlagValues) prepareCapture(ctx context.Context) (func(), error) {
 	if values.file == "" {
 		return func() {}, nil
 	}
-	path, cleanup, err := prepareCapture(values.file)
+	path, cleanup, err := prepareCapture(ctx, values.file)
 	if err != nil {
 		return func() {}, err
 	}
@@ -51,7 +51,8 @@ func (values *sourceFlagValues) prepareCapture() (func(), error) {
 // file. n2k.File owns candump parsing, so keeping decompression at this
 // boundary avoids duplicating the library's parser and preserves all file
 // source behavior.
-func prepareCapture(path string) (string, func(), error) {
+func prepareCapture(ctx context.Context, path string) (string, func(), error) {
+	path = expandPath(path)
 	file, err := os.Open(path) // #nosec G304 -- the CLI reads the operator-selected capture path.
 	if err != nil {
 		return "", func() {}, fmt.Errorf("opening capture %q: %w", path, err)
@@ -64,7 +65,7 @@ func prepareCapture(path string) (string, func(), error) {
 		return "", func() {}, fmt.Errorf("inspecting capture %q: %w", path, peekErr)
 	}
 	if len(header) < 2 || header[0] != 0x1f || header[1] != 0x8b {
-		return path, func() {}, nil
+		return path, func() {}, validateCapture(ctx, path, path)
 	}
 
 	compressed, err := gzip.NewReader(buffered)
@@ -80,7 +81,7 @@ func prepareCapture(path string) (string, func(), error) {
 	expandedPath := expanded.Name()
 	removeExpanded := func() { _ = os.Remove(expandedPath) }
 	limited := io.LimitReader(compressed, maxExpandedCaptureBytes+1)
-	written, err := io.Copy(expanded, limited)
+	written, err := io.Copy(expanded, contextReader{ctx: ctx, reader: limited})
 	if err != nil {
 		_ = expanded.Close()
 		removeExpanded()
@@ -98,6 +99,10 @@ func prepareCapture(path string) (string, func(), error) {
 	if err := compressed.Close(); err != nil {
 		removeExpanded()
 		return "", func() {}, fmt.Errorf("finishing gzip capture %q: %w", path, err)
+	}
+	if err := validateCapture(ctx, expandedPath, path); err != nil {
+		removeExpanded()
+		return "", func() {}, err
 	}
 	return expandedPath, removeExpanded, nil
 }
@@ -125,22 +130,23 @@ func runSniff(ctx context.Context, out io.Writer, source n2k.Option, expression 
 		if err := writer.Write(message); err != nil {
 			return err
 		}
+		countProgress(ctx)
 	}
 	return nil
 }
 
-func runRecord(ctx context.Context, stdout io.Writer, source n2k.Option, outputPath, outputFormat string) error {
+func runRecord(ctx context.Context, stdout io.Writer, source n2k.Option, inputPath, outputPath, outputFormat string, overwrite bool) (resultErr error) {
 	if outputFormat != "candump" && outputFormat != "jsonl" {
 		return fmt.Errorf("unknown output format %q: use candump or jsonl", outputFormat)
 	}
 
-	writer, closeWriter, err := outputWriter(outputPath, stdout)
+	writer, closeWriter, err := outputWriter(inputPath, outputPath, stdout, overwrite)
 	if err != nil {
 		return err
 	}
-	defer closeWriter()
+	defer func() { resultErr = errors.Join(resultErr, closeWriter()) }()
 	buffered := bufio.NewWriter(writer)
-	defer func() { _ = buffered.Flush() }()
+	defer func() { resultErr = errors.Join(resultErr, buffered.Flush()) }()
 	encoder := json.NewEncoder(buffered)
 	for observation, observeErr := range n2k.Observe(ctx, source) {
 		if observeErr != nil {
@@ -153,6 +159,7 @@ func runRecord(ctx context.Context, stdout io.Writer, source n2k.Option, outputP
 			if err := encoder.Encode(observation); err != nil {
 				return fmt.Errorf("encoding observation: %w", err)
 			}
+			countProgress(ctx)
 			continue
 		}
 		if observation.Frame == nil {
@@ -161,19 +168,38 @@ func runRecord(ctx context.Context, stdout io.Writer, source n2k.Option, outputP
 		if _, err := fmt.Fprintln(buffered, formatCandump(observation)); err != nil {
 			return fmt.Errorf("writing capture: %w", err)
 		}
+		countProgress(ctx)
 	}
-	return buffered.Flush()
+	return nil // Deferred flush and close report errors, including after cancellation.
 }
 
-func outputWriter(path string, stdout io.Writer) (io.Writer, func(), error) {
+func outputWriter(inputPath, path string, stdout io.Writer, overwrite bool) (io.Writer, func() error, error) {
 	if path == "" || path == "-" {
-		return stdout, func() {}, nil
+		return stdout, func() error { return nil }, nil
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) // #nosec G304 -- the CLI writes the operator-selected capture path.
+	path = expandPath(path)
+	flags := os.O_CREATE | os.O_WRONLY | os.O_EXCL
+	if overwrite {
+		flags = os.O_CREATE | os.O_WRONLY
+	}
+	file, err := os.OpenFile(path, flags, 0o600) // #nosec G304 -- the CLI writes the operator-selected capture path.
 	if err != nil {
-		return nil, func() {}, fmt.Errorf("opening output: %w", err)
+		if errors.Is(err, os.ErrExist) {
+			return nil, nil, fmt.Errorf("output %q already exists; choose a new path or use --overwrite to replace it", path)
+		}
+		return nil, nil, fmt.Errorf("opening output: %w", err)
 	}
-	return file, func() { _ = file.Close() }, nil
+	if err := checkOutputFile(inputPath, file); err != nil {
+		_ = file.Close()
+		return nil, nil, err
+	}
+	if overwrite {
+		if err := file.Truncate(0); err != nil {
+			_ = file.Close()
+			return nil, nil, fmt.Errorf("replacing output: %w", err)
+		}
+	}
+	return file, file.Close, nil
 }
 
 func formatCandump(observation n2k.Observation) string {
@@ -216,19 +242,21 @@ func runReplay(ctx context.Context, out io.Writer, file string, timing bool, exp
 		if err := writer.Write(message); err != nil {
 			return err
 		}
+		countProgress(ctx)
 	}
 	return nil
 }
 
 type validationSummary struct {
-	Messages    int            `json:"messages"`
-	Typed       int            `json:"typed"`
-	Undecodable int            `json:"undecodable"`
-	ByPGN       map[uint32]int `json:"byPgn"`
+	Messages         int            `json:"messages"`
+	Typed            int            `json:"typed"`
+	Undecodable      int            `json:"undecodable"`
+	ByPGN            map[uint32]int `json:"byPgn"`
+	UndecodableByPGN map[uint32]int `json:"undecodableByPgn"`
 }
 
-func runValidate(ctx context.Context, out io.Writer, source n2k.Option, strict bool) error {
-	summary := validationSummary{ByPGN: make(map[uint32]int)}
+func runValidate(ctx context.Context, out io.Writer, source n2k.Option, strict bool, outputFormat string) error {
+	summary := validationSummary{ByPGN: make(map[uint32]int), UndecodableByPGN: make(map[uint32]int)}
 	for message, receiveErr := range n2k.Receive(ctx, source, n2k.IncludeUnknown()) {
 		if receiveErr != nil {
 			if ctx.Err() != nil {
@@ -237,8 +265,10 @@ func runValidate(ctx context.Context, out io.Writer, source n2k.Option, strict b
 			return receiveErr
 		}
 		summary.Messages++
+		countProgress(ctx)
 		if unknown, ok := message.(*pgn.UnknownPGN); ok {
 			summary.Undecodable++
+			summary.UndecodableByPGN[unknown.Info.PGN]++
 			summary.ByPGN[unknown.Info.PGN]++
 			continue
 		}
@@ -247,13 +277,11 @@ func runValidate(ctx context.Context, out io.Writer, source n2k.Option, strict b
 			summary.ByPGN[carrier.MessageInfo().PGN]++
 		}
 	}
-	encoder := json.NewEncoder(out)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(summary); err != nil {
-		return fmt.Errorf("encoding summary: %w", err)
+	if err := writeValidation(out, summary, outputFormat); err != nil {
+		return err
 	}
 	if strict && summary.Undecodable > 0 {
-		return fmt.Errorf("%d undecodable messages", summary.Undecodable)
+		return fmt.Errorf("%d undecodable messages; see undecodableByPgn for the failing PGNs", summary.Undecodable)
 	}
 	return nil
 }
@@ -267,7 +295,7 @@ type deviceRecord struct {
 	ConfigInfo  *pgn.ConfigurationInformation `json:"configInfo,omitempty"`
 }
 
-func runActiveDevices(ctx context.Context, out io.Writer, source n2k.Option, reconnect bool, wait, claimTimeout time.Duration) error {
+func runActiveDevices(ctx context.Context, out io.Writer, source n2k.Option, reconnect bool, wait, claimTimeout time.Duration, outputFormat string) error {
 	opts := []n2k.Option{source, n2k.WithClaimTimeout(claimTimeout)}
 	if reconnect {
 		opts = append(opts, n2k.WithReconnect(n2k.ReconnectPolicy{}))
@@ -282,7 +310,6 @@ func runActiveDevices(ctx context.Context, out io.Writer, source n2k.Option, rec
 	select {
 	case <-timer.C:
 	case <-ctx.Done():
-		return nil
 	}
 	if err := client.Err(); err != nil {
 		return err
@@ -301,10 +328,11 @@ func runActiveDevices(ctx context.Context, out io.Writer, source n2k.Option, rec
 			ConfigInfo:  device.ConfigInfo,
 		})
 	}
-	return encodeDevices(out, records)
+	setProgress(ctx, len(records))
+	return writeDevices(out, records, outputFormat)
 }
 
-func runPassiveDevices(ctx context.Context, out io.Writer, source n2k.Option, wait time.Duration, bounded bool) error {
+func runPassiveDevices(ctx context.Context, out io.Writer, source n2k.Option, wait time.Duration, bounded bool, outputFormat string) error {
 	scanCtx := ctx
 	cancel := func() {}
 	if bounded {
@@ -322,10 +350,9 @@ func runPassiveDevices(ctx context.Context, out io.Writer, source n2k.Option, wa
 		}
 		inventory.observe(message)
 	}
-	if ctx.Err() != nil {
-		return nil
-	}
-	return encodeDevices(out, inventory.snapshot())
+	records := inventory.snapshot()
+	setProgress(ctx, len(records))
+	return writeDevices(out, records, outputFormat)
 }
 
 type deviceInventory struct {
@@ -458,31 +485,26 @@ func sortedPGNNumbers() []uint32 {
 	return numbers
 }
 
-func runPGN(out io.Writer, value string) error {
+func runPGN(out io.Writer, value, outputFormat string) error {
+	infos, err := findPGNs(value)
+	if err != nil {
+		return err
+	}
+	if outputFormat == messageOutputText {
+		_, numericErr := strconv.ParseUint(value, 0, 32)
+		return writePGNTable(out, infos, value == "list" || (numericErr != nil && len(infos) > 1))
+	}
 	encoder := json.NewEncoder(out)
 	encoder.SetIndent("", "  ")
 	if value == "list" {
-		for _, number := range sortedPGNNumbers() {
-			for _, info := range pgn.PgnInfoLookup[number] {
-				if err := encoder.Encode(info); err != nil {
-					return fmt.Errorf("encoding PGN metadata: %w", err)
-				}
+		for _, info := range infos {
+			if err := encoder.Encode(info); err != nil {
+				return err
 			}
 		}
 		return nil
 	}
-	number, err := strconv.ParseUint(value, 0, 32)
-	if err != nil {
-		return fmt.Errorf("invalid PGN %q", value)
-	}
-	infos := pgn.PgnInfoLookup[uint32(number)]
-	if len(infos) == 0 {
-		return fmt.Errorf("PGN %d is not in the typed metadata", number)
-	}
-	if err := encoder.Encode(infos); err != nil {
-		return fmt.Errorf("encoding PGN metadata: %w", err)
-	}
-	return nil
+	return encoder.Encode(infos)
 }
 
 // sourceOption converts mutually exclusive source flags into the one n2k
@@ -507,9 +529,15 @@ func sourceOption(iface, usb, file, tcp, udp, format string, timing bool) (n2k.O
 		sources = append(sources, n2k.File(file, fileOpts...))
 	}
 	if tcp != "" {
+		if err := addressValidator("TCP")(tcp); err != nil {
+			return nil, err
+		}
 		sources = append(sources, n2k.TCP(tcp, stream))
 	}
 	if udp != "" {
+		if err := addressValidator("UDP")(udp); err != nil {
+			return nil, err
+		}
 		sources = append(sources, n2k.UDP(udp, stream))
 	}
 	if len(sources) != 1 {

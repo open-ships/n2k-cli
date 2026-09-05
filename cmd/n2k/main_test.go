@@ -482,6 +482,7 @@ func TestDevicesWizardBuildsPassiveCaptureInventory(t *testing.T) {
 	require.Equal(t, []string{
 		"devices",
 		"--file", "capture.log.gz",
+		"--output", "text",
 	}, config.args())
 }
 

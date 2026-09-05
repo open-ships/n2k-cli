@@ -14,27 +14,27 @@
 
   <rect x="34" y="163" width="1012" height="56" rx="6" fill="#152e2b"/>
   <rect x="34" y="163" width="4" height="56" rx="2" fill="#20c997"/>
-  <text x="54" y="184" fill="#f0f6fc" font-size="14" font-weight="700">Sniff decoded traffic</text>
+  <text x="54" y="184" fill="#f0f6fc" font-size="14" font-weight="700">1  Sniff decoded traffic</text>
   <text x="54" y="207" fill="#a7b0be" font-size="12">Stream typed JSON or physical-value text from CAN, USB, gateway, or capture</text>
 
-  <text x="54" y="247" fill="#f0f6fc" font-size="14" font-weight="700">Record raw observations</text>
+  <text x="54" y="247" fill="#f0f6fc" font-size="14" font-weight="700">2  Record raw observations</text>
   <text x="54" y="270" fill="#7c8799" font-size="12">Capture replayable candump or context-rich observation JSON lines</text>
 
-  <text x="54" y="310" fill="#f0f6fc" font-size="14" font-weight="700">Replay a capture</text>
+  <text x="54" y="310" fill="#f0f6fc" font-size="14" font-weight="700">3  Replay a capture</text>
   <text x="54" y="333" fill="#7c8799" font-size="12">Decode a candump file with optional source timing and CEL filtering</text>
 
-  <text x="54" y="373" fill="#f0f6fc" font-size="14" font-weight="700">Validate a source</text>
+  <text x="54" y="373" fill="#f0f6fc" font-size="14" font-weight="700">4  Validate a source</text>
   <text x="54" y="396" fill="#7c8799" font-size="12">Summarize typed and undecodable messages; optionally enforce strict mode</text>
 
-  <text x="54" y="436" fill="#f0f6fc" font-size="14" font-weight="700">Inventory network devices</text>
+  <text x="54" y="436" fill="#f0f6fc" font-size="14" font-weight="700">5  Inventory network devices</text>
   <text x="54" y="459" fill="#7c8799" font-size="12">Actively discover a live bus or inspect device identities captured in a file</text>
 
-  <text x="54" y="499" fill="#f0f6fc" font-size="14" font-weight="700">Explore the PGN schema</text>
-  <text x="54" y="522" fill="#7c8799" font-size="12">Autocomplete known PGNs and inspect fields, ranges, units, and confidence</text>
+  <text x="54" y="499" fill="#f0f6fc" font-size="14" font-weight="700">6  Explore the PGN schema</text>
+  <text x="54" y="522" fill="#7c8799" font-size="12">Search PGNs by name or number and inspect fields, ranges, units, and confidence</text>
 
-  <text x="54" y="562" fill="#f0f6fc" font-size="14" font-weight="700">Update n2k</text>
+  <text x="54" y="562" fill="#f0f6fc" font-size="14" font-weight="700">7  Update n2k</text>
   <text x="54" y="585" fill="#7c8799" font-size="12">Check GitHub releases and update through Homebrew, Go, or a verified binary</text>
 
   <line x1="34" y1="606" x2="1046" y2="606" stroke="#21262d"/>
-  <text x="54" y="630" fill="#7c8799" font-size="11">1–7 jump  •  / filter  •  enter configure  •  ? help  •  q quit</text>
+  <text x="54" y="630" fill="#7c8799" font-size="11">1–7 configure  •  / filter  •  enter configure  •  ? help  •  q quit</text>
 </svg>

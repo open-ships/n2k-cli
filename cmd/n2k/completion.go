@@ -222,14 +222,13 @@ func completePGNs(prefix string) []completionItem {
 	}
 	for _, number := range sortedPGNNumbers() {
 		value := strconv.FormatUint(uint64(number), 10)
-		if !strings.HasPrefix(value, prefix) {
-			continue
-		}
 		description := "typed PGN"
 		if infos := pgn.PgnInfoLookup[number]; len(infos) > 0 && infos[0].Description != "" {
 			description = sanitizeDescription(infos[0].Description)
 		}
-		items = append(items, completionItem{value: value, description: description})
+		if strings.HasPrefix(value, prefix) || strings.Contains(strings.ToLower(description), strings.ToLower(prefix)) {
+			items = append(items, completionItem{value: value, description: description})
+		}
 	}
 	return items
 }
