@@ -5,133 +5,65 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version: 1.26.x
-          check-latest: true
-
-      - name: Test
-        run: go test ./...
-
-      - name: Test release installer
-        shell: bash
-        run: |
-          install_dir="$RUNNER_TEMP/n2k-install"
-          N2K_INSTALL_DIR="$install_dir" sh ./install.sh
-          binary=n2k
-          if [ "$RUNNER_OS" = Windows ]; then
-            binary=n2k.exe
+    uses: open-ships/ci/.github/workflows/check-go.yaml@95d4b3ed5452a99525c240688de146553e57cee0 # shared CI v1.2.0 candidate
+    with:
+      runner: ${{ matrix.os }}
+      command: |
+        go test ./...
+        install_dir="$RUNNER_TEMP/n2k-install"
+        N2K_INSTALL_DIR="$install_dir" sh ./install.sh
+        binary=n2k
+        if [ "$RUNNER_OS" = Windows ]; then
+          binary=n2k.exe
+        fi
+        "$install_dir/$binary" version
+        uninstall_dir="$RUNNER_TEMP/n2k-uninstall"
+        mkdir -p "$uninstall_dir"
+        binary=n2k
+        if [ "$RUNNER_OS" = Windows ]; then
+          binary=n2k.exe
+        fi
+        go build -trimpath -o "$uninstall_dir/$binary" ./cmd/n2k
+        HOME="$RUNNER_TEMP/n2k-uninstall-home" "$uninstall_dir/$binary" uninstall
+        for attempt in $(seq 1 100); do
+          if [ ! -e "$uninstall_dir/$binary" ]; then
+            exit 0
           fi
-          "$install_dir/$binary" version
-
-      - name: Test uninstall
-        shell: bash
-        run: |
-          uninstall_dir="$RUNNER_TEMP/n2k-uninstall"
-          mkdir -p "$uninstall_dir"
-          binary=n2k
-          if [ "$RUNNER_OS" = Windows ]; then
-            binary=n2k.exe
-          fi
-          go build -trimpath -o "$uninstall_dir/$binary" ./cmd/n2k
-          HOME="$RUNNER_TEMP/n2k-uninstall-home" "$uninstall_dir/$binary" uninstall
-          for attempt in $(seq 1 100); do
-            if [ ! -e "$uninstall_dir/$binary" ]; then
-              exit 0
-            fi
-            sleep 0.1
-          done
-          echo "n2k uninstall did not remove $uninstall_dir/$binary" >&2
-          exit 1
+          sleep 0.1
+        done
+        echo "n2k uninstall did not remove $uninstall_dir/$binary" >&2
+        exit 1
 
   race:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version: 1.26.x
-          check-latest: true
-
-      - name: Race detector
-        run: go test -race ./...
+    uses: open-ships/ci/.github/workflows/check-go.yaml@95d4b3ed5452a99525c240688de146553e57cee0 # shared CI v1.2.0 candidate
+    with:
+      command: |
+        go test -race ./...
 
   lint:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version: 1.26.x
-          check-latest: true
-
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.12.0
+    uses: open-ships/ci/.github/workflows/check-go.yaml@95d4b3ed5452a99525c240688de146553e57cee0 # shared CI v1.2.0 candidate
+    with:
+      lint: true
 
   secure:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version: 1.26.x
-          check-latest: true
-
-      - name: Run govulncheck
-        env:
-          GOTOOLCHAIN: go1.26.6
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.5.0
-          govulncheck ./...
-
-      - name: Run gosec
-        env:
-          GOTOOLCHAIN: go1.26.6
-        run: |
-          go install github.com/securego/gosec/v2/cmd/gosec@v2.27.1
-          gosec -exclude-dir=.claude -exclude=G115 ./...
+    uses: open-ships/ci/.github/workflows/check-go.yaml@95d4b3ed5452a99525c240688de146553e57cee0 # shared CI v1.2.0 candidate
+    with:
+      security: true
+      gosec-excludes: G115
+      gosec-exclude-generated: false
 
   release-gate:
     if: ${{ always() }}
     needs: [test, race, lint, secure]
-    runs-on: ubuntu-latest
-    env:
-      TEST_RESULT: ${{ needs.test.result }}
-      RACE_RESULT: ${{ needs.race.result }}
-      LINT_RESULT: ${{ needs.lint.result }}
-      SECURE_RESULT: ${{ needs.secure.result }}
-
-    steps:
-      - name: Require every release gate
-        run: |
-          test "$TEST_RESULT" = success
-          test "$RACE_RESULT" = success
-          test "$LINT_RESULT" = success
-          test "$SECURE_RESULT" = success
+    uses: open-ships/ci/.github/workflows/gate.yaml@95d4b3ed5452a99525c240688de146553e57cee0 # shared CI v1.2.0 candidate
+    with:
+      results: ${{ toJSON(needs) }}
